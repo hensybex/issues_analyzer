@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hensybex/issues_analyzer/internal/analyzer"
+	"github.com/hensybex/issues_analyzer/analyzer" // New path
 )
 
 func main() {
