@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/hensybex/issues_analyzer/internal/analyzer"
+	"github.com/hensybex/issues_analyzer/analyzer"
 )
 
 func main() {
