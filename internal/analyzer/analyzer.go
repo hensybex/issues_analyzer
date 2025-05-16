@@ -5,13 +5,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log" // <- Added for logging
+	"log"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	// "sort" // Add if you want to sort files/dirs alphabetically later
+	// "sort"
 
 	"github.com/hensybex/issues_analyzer/internal/config"
 	"github.com/hensybex/issues_analyzer/internal/fs"
@@ -21,27 +21,23 @@ import (
 // Analyze выполняет build (для Go) и lint/analyze, не падая на exit-кодах,
 // и возвращает два блока с путями, отсчитанными от dir.
 func Analyze(lang, dir string, fix bool) (Report, error) {
-	log.Printf("[DEBUG] Analyze called with lang=%s, dir=%s, fix=%t", lang, dir, fix)
+	log.Printf("[DEBUG] Analyze called with lang=%s, dir=%s, fix=%t", lang, dir, fix) // Corrected log
 	cfg, ok := config.Supported[lang]
 	if !ok {
 		log.Printf("[ERROR] Language not supported: %s", lang)
 		return Report{}, errors.New("language not supported")
 	}
 
-	var compileRaw cmdResult // For Go, this will hold build output
+	var compileRaw cmdResult
 
 	if lang == "go" {
-		// 1) Build/compile step (Go only)
 		log.Printf("[DEBUG] Running Go build step for directory: %s", dir)
-		// Use a temporary variable to avoid shadowing if we make runCommand return more
 		goBuildResult := runCommand(dir, "go", "build", "./...")
-		compileRaw = goBuildResult                                   // Assign to compileRaw
-		log.Printf("[DEBUG] Go build stdout: %s", compileRaw.stdout) // Log raw stdout
-		// compileRaw.rawLines already contains combined stdout and stderr.
-		// No need to log stderr separately if it's already in rawLines.
+		compileRaw = goBuildResult
+		log.Printf("[DEBUG] Go build stdout (from compileRaw.stdout): %s", compileRaw.stdout)
+		// compileRaw.rawLines contains combined stderr and stdout
 	}
 
-	// 2) Lint/Analysis step
 	args := make([]string, len(cfg.AnalyzeArgs))
 	for i, a := range cfg.AnalyzeArgs {
 		args[i] = strings.ReplaceAll(a, "{dir}", dir)
@@ -51,17 +47,8 @@ func Analyze(lang, dir string, fix bool) (Report, error) {
 	}
 	log.Printf("[DEBUG] Running linter: %s with args: %v (dir context: %s)", cfg.AnalyzerExe, args, dir)
 	lintRaw := runCommand(dir, cfg.AnalyzerExe, args...)
-	log.Printf("[DEBUG] Linter stdout: %s", lintRaw.stdout)
-	// Log linter stderr if it's not empty and potentially interesting
-	// For linters outputting JSON to stdout, stderr might contain useful debug info or errors.
-	// However, runCommand already combines stderr into rawLines. For lintRaw, we mostly care about lintRaw.stdout.
-	// If lintRaw.rawLines (which includes stderr) is needed for debugging linter itself:
-	// log.Printf("[DEBUG] Linter combined raw lines output (%d lines)", len(lintRaw.rawLines))
-	// for i, line := range lintRaw.rawLines {
-	//    log.Printf("[DEBUG] Linter raw line %d: %s", i, line)
-	// }
+	log.Printf("[DEBUG] Linter stdout (from lintRaw.stdout): %s", lintRaw.stdout)
 
-	// 3) Parse lint JSON → []Issue
 	var issues []model.Issue
 	if trimmed := strings.TrimSpace(lintRaw.stdout); trimmed != "" {
 		log.Printf("[DEBUG] Attempting to parse linter JSON output (length: %d)", len(lintRaw.stdout))
@@ -76,7 +63,6 @@ func Analyze(lang, dir string, fix bool) (Report, error) {
 		log.Printf("[DEBUG] Linter JSON output was empty.")
 	}
 
-	// 4) Собираем текстовые блоки, делая пути относительными к dir
 	linterBlock := buildLinterBlock(dir, issues)
 	var compilerBlock string
 	if lang == "go" {
@@ -100,7 +86,7 @@ func containsDirPlaceholder(args []string) bool {
 
 type cmdResult struct {
 	stdout   string
-	rawLines []string // Combined stdout and stderr
+	rawLines []string
 }
 
 func runCommand(dir, exe string, argv ...string) cmdResult {
@@ -114,9 +100,6 @@ func runCommand(dir, exe string, argv ...string) cmdResult {
 	log.Printf("[DEBUG] Executing command: %s %v in dir: %s", exe, argv, dir)
 	err := cmd.Run()
 	if err != nil {
-		// Log the error from cmd.Run() itself, as it might indicate issues
-		// like command not found, or non-zero exit that isn't an ExitError.
-		// If it's an ExitError, stderr will contain the details.
 		log.Printf("[INFO] Command %s %v finished with error: %v. Stderr might contain details.", exe, argv, err)
 	}
 
@@ -124,15 +107,12 @@ func runCommand(dir, exe string, argv ...string) cmdResult {
 	stderr := errBuf.String()
 
 	var lines []string
-	// Combine stderr first, then stdout, as errors often go to stderr.
-	// Ensure that if both are empty, combined is empty.
-	// Ensure that if one is empty, no extra newline is added.
 	combinedOutput := ""
 	if stderr != "" {
 		combinedOutput += stderr
 	}
 	if stdout != "" {
-		if combinedOutput != "" { // Add newline only if stderr had content
+		if combinedOutput != "" {
 			combinedOutput += "\n"
 		}
 		combinedOutput += stdout
@@ -158,43 +138,32 @@ func buildLinterBlock(rootDir string, issues []model.Issue) string {
 	log.Printf("[DEBUG] Building linter block with %d issues.", len(issues))
 
 	byFile := map[string][]model.Issue{}
-	var files []string // To maintain order of appearance
+	var files []string
 	for _, is := range issues {
-		// Ensure is.File is absolute before making it relative
 		absIssueFile := is.File
 		if !filepath.IsAbs(absIssueFile) {
-			absIssueFile = filepath.Join(rootDir, is.File) // Assuming is.File might be relative from parser
+			absIssueFile = filepath.Join(rootDir, is.File)
 		}
 		absIssueFile = filepath.Clean(absIssueFile)
 
 		rel, err := filepath.Rel(rootDir, absIssueFile)
 		if err != nil {
 			log.Printf("[WARN] Failed to make path relative for linter: %s (rootDir: %s). Error: %v", absIssueFile, rootDir, err)
-			rel = absIssueFile // Use the absolute path if Rel fails
+			rel = absIssueFile
 		}
 		rel = filepath.ToSlash(rel)
-		is.File = rel // Update issue's file to relative path for reporting
+		is.File = rel
 
 		if _, seen := byFile[rel]; !seen {
 			files = append(files, rel)
 		}
 		byFile[rel] = append(byFile[rel], is)
 	}
-	// sort.Strings(files) // Optional: sort files alphabetically for consistent report order
 
-	for _, file := range files {
-		sb.WriteString(file + ":\n\n")
-		for _, is := range byFile[file] {
-			// Path for fs.Line should be absolute or relative to CWD.
-			// We need the original absolute path or reconstruct it carefully.
-			// If `is.File` was made relative, join with rootDir.
-			// Original `is.File` from parser might be absolute or relative to project dir.
-			// `absIssueFile` captured above is the correct absolute path.
-			// However, `fs.Line` needs the path as it is on disk.
-			// `filepath.Join(rootDir, file)` should work if `file` is `rel`.
-
-			pathForFsLine := filepath.Join(rootDir, file) // 'file' is rel here
-
+	for _, fileKey := range files { // Changed loop variable to fileKey for clarity
+		sb.WriteString(fileKey + ":\n\n") // fileKey is the relative path
+		for _, is := range byFile[fileKey] {
+			pathForFsLine := filepath.Join(rootDir, fileKey) // Use fileKey (relative path) with rootDir
 			src := strings.TrimSpace(fs.Line(pathForFsLine, is.Line))
 			sb.WriteString(src + "\n")
 			sb.WriteString(fmt.Sprintf("%d:%d: %s\n\n",
@@ -202,11 +171,9 @@ func buildLinterBlock(rootDir string, issues []model.Issue) string {
 			))
 		}
 	}
-
 	return sb.String()
 }
 
-// buildCompilerBlock is modified to use regex for more robust error parsing.
 func buildCompilerBlock(rootDir string, raw []string) string {
 	log.Printf("[DEBUG] buildCompilerBlock: Received %d raw lines to process for rootDir: %s", len(raw), rootDir)
 	var sb strings.Builder
@@ -243,7 +210,7 @@ func buildCompilerBlock(rootDir string, raw []string) string {
 				absFile = filepath.Clean(filePathFromCompiler)
 			} else {
 				absFile = filepath.Join(rootDir, filePathFromCompiler)
-				absFile = filepath.Clean(absFile) // Clean after join
+				absFile = filepath.Clean(absFile)
 			}
 			log.Printf("[DEBUG] buildCompilerBlock: Absolute path determined: '%s'", absFile)
 
@@ -256,10 +223,10 @@ func buildCompilerBlock(rootDir string, raw []string) string {
 			log.Printf("[DEBUG] buildCompilerBlock: Relative path: '%s'", relFile)
 
 			dir := filepath.ToSlash(filepath.Dir(relFile))
-			if dir == "." && relFile != "." { // Avoid '.'" for top-level files, make it empty like before.
+			if dir == "." && relFile != "." {
 				dir = ""
-			} else if relFile == "." { // if relFile itself is "." (e.g. error points to dir)
-				dir = "" // Or handle as a special case
+			} else if relFile == "." {
+				dir = ""
 			}
 
 			if _, ok := byDir[dir]; !ok {
@@ -274,7 +241,7 @@ func buildCompilerBlock(rootDir string, raw []string) string {
 
 		} else if strings.HasPrefix(line, "# ") {
 			log.Printf("[DEBUG] buildCompilerBlock: Ignoring package directive line: %s", line)
-		} else if strings.TrimSpace(line) != "" { // Don't log for empty lines
+		} else if strings.TrimSpace(line) != "" {
 			log.Printf("[DEBUG] buildCompilerBlock: Line did not match error regex and is not a package directive: %s", line)
 		}
 	}
@@ -282,48 +249,39 @@ func buildCompilerBlock(rootDir string, raw []string) string {
 	if !foundErrors {
 		log.Printf("[DEBUG] buildCompilerBlock: No parseable compiler errors found after processing all lines.")
 		sb.WriteString("No compiler errors found.\n")
-		if len(raw) > 0 { // If there was output but nothing parsed, mention it.
-			sb.WriteString(fmt.Sprintf(" (%d lines of raw compiler output were processed)\n", len(raw)))
+		if len(raw) > 0 {
+			sb.WriteString(fmt.Sprintf(" (%d lines of raw compiler output were processed, but none matched the expected error format 'file:line:col:message'. The actual output received was:\n", len(raw)))
+			for _, rawLine := range raw {
+				sb.WriteString(fmt.Sprintf("  %s\n", rawLine))
+			}
+			sb.WriteString(")\n")
 		}
 		return sb.String()
 	}
-	log.Printf("[DEBUG] buildCompilerBlock: Found %d error entries across directories/files. Structure: %+v", len(byDir), byDir)
+	log.Printf("[DEBUG] buildCompilerBlock: Found parseable errors. Grouped structure: %+v", byDir)
 
-	for _, dir := range dirs {
-		dirDisplayName := dir
+	for _, dirKey := range dirs { // Changed loop variable to dirKey for clarity
+		dirDisplayName := dirKey
 		if dirDisplayName == "" {
-			dirDisplayName = "(project root)" // Clarify display for root files
+			dirDisplayName = "(project root)"
 		} else {
-			// Ensure it doesn't end with a slash if it's not root, then add one for display
 			dirDisplayName = strings.TrimSuffix(dirDisplayName, "/")
 		}
 		sb.WriteString("# " + dirDisplayName + "/:\n\n")
 
-		filesInDirKeys := make([]string, 0, len(byDir[dir]))
-		for k := range byDir[dir] {
+		filesInDirKeys := make([]string, 0, len(byDir[dirKey]))
+		for k := range byDir[dirKey] {
 			filesInDirKeys = append(filesInDirKeys, k)
 		}
-		// sort.Strings(filesInDirKeys) // Optional: sort files for deterministic output
+		// sort.Strings(filesInDirKeys) // Optional
 
-		for _, fileKey := range filesInDirKeys {
-			errs := byDir[dir][fileKey]
+		for _, fileKey := range filesInDirKeys { // fileKey is the relative path
+			errs := byDir[dirKey][fileKey]
 			sb.WriteString(fileKey + ":\n\n")
 			for _, e := range errs {
 				lineNumber := atoi(e[0])
 
-				// pathForFsLine should be the absolute path to the file
-				// fileKey is relFile. So join with rootDir.
-				//pathForFsLine := filepath.Join(rootDir, fileKey)
-				// If fileKey was an absolute path (because Rel failed), Join might be weird.
-				// Let's re-evaluate pathForFsLine based on how absFile was determined.
-				// We need the original absolute path that corresponds to `fileKey`.
-				// This is tricky because we only stored relFile as key.
-				// For simplicity, assume filepath.Join(rootDir, fileKey) is generally correct.
-				// A more robust way would be to store absFile with the error data.
-
-				// fs.Line needs the absolute path of the source file.
-				// `fileKey` is relative to `rootDir`.
-				truePathForFsLine := filepath.Join(rootDir, fileKey)
+				truePathForFsLine := filepath.Join(rootDir, fileKey) // Use fileKey (relative path) with rootDir
 				log.Printf("[DEBUG] buildCompilerBlock: Getting line %d for file (used for fs.Line): '%s'", lineNumber, truePathForFsLine)
 
 				srcLine := strings.TrimSpace(fs.Line(truePathForFsLine, lineNumber))
