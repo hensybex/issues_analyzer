@@ -1,7 +1,8 @@
+// internal/config/lang.go
 package config
 
 import (
-	"github.com/hensybex/issues_analyzer/upa/internal/parser"
+	"github.com/hensybex/issues_analyzer/internal/parser"
 )
 
 type LanguageConfig struct {
@@ -27,13 +28,13 @@ var Supported = map[string]LanguageConfig{
 	},
 	"dart": {
 		AnalyzerExe: "dart",
-		AnalyzeArgs: []string{"analyze", "{dir}", "--format=json"},
+		AnalyzeArgs: []string{"analyze", "--format=json"},
 		FixArgs:     []string{"fix", "--apply"},
 		Parser:      parser.DartParser{},
 	},
-	"flutter": { // piggy-back on dart settings
-		AnalyzerExe: "flutter",
-		AnalyzeArgs: []string{"analyze", "{dir}", "--format=json"},
+	"flutter": {
+		AnalyzerExe: "dart",
+		AnalyzeArgs: []string{"analyze", "--format=json"},
 		FixArgs:     []string{"fix", "--apply"},
 		Parser:      parser.DartParser{},
 	},

@@ -3,7 +3,7 @@ package parser
 import (
 	"encoding/json"
 
-	"github.com/hensybex/issues_analyzer/upa/internal/model"
+	"github.com/hensybex/issues_analyzer/internal/model"
 )
 
 type ruffDiag struct {
